@@ -7,7 +7,6 @@ import (
 	"github.com/caleblloyd/svtracker"
 	"io"
 	"os"
-	"time"
 	"github.com/mjibson/go-dsp/fft"
 	"github.com/mjibson/go-dsp/window"
 )
@@ -45,16 +44,10 @@ func main() {
 	stdinReader := io.TeeReader(stdin, delayWriter)
 	bins := 4
 	freqBin, err := NewFreqBin(bins)
-	samplesPerSecond := 20
-	windowSize := 10
-	timeDelay := time.Second / time.Duration(samplesPerSecond)
+	samplesPerSecond := 12
+	windowSize := 6
 	if (err != nil){
 		exitError(err)
-	}
-	for _, v := range(freqBin.FreqBands){
-		fmt.Print(v.Lower)
-		fmt.Print(" - ")
-		fmt.Println(v.Upper)
 	}
 
 	go func(){
@@ -66,7 +59,6 @@ func main() {
 		rw := NewRollingWindow(bins, windowSize)
 		delayWriter.SetDelay(int(wavReader.ByteRate)/samplesPerSecond)
 		for true {
-			td := time.After(timeDelay)
 			data, err := wavReader.ReadFloats(samplesPerRead)
 			convert := make([]float64, len(data))
 			for i, v := range(data){
@@ -83,7 +75,7 @@ func main() {
 
 			freqSamples := freqBin.BinSamples(mag, int(wavReader.SampleRate))
 			rw.SetBoolsAndAddSamples(freqSamples)
-			go rw.RevPrint(td)
+			rw.RevPrint()
 			if (err != nil){
 				exitError(err)
 			}

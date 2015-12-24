@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"os/exec"
-	"time"
 )
 
 func PlayWav(st *svtracker.SvTracker, stdin io.Reader) error{
@@ -157,28 +156,39 @@ func (rw *RollingWindow) AddSamples(samples []float64){
 func (rw *RollingWindow) SetBoolsAndAddSamples(samples []float64) {
 	for i, v := range(samples){
 		avg := average(rw.bins[i])
-		if (v >= avg){
+		if !rw.bools[i] && v >= avg*1.1{
 			rw.bools[i] = true
-		} else {
+		} else if rw.bools[i] && v <= avg*0.9 {
 			rw.bools[i] = false
 		}
 	}
 	rw.AddSamples(samples)
 }
 
-func (rw *RollingWindow) RevPrint(c <-chan time.Time){
+func (rw *RollingWindow) RevPrint(){
 	bools := make([]bool, len(rw.bools))
 	copy(bools, rw.bools)
-	<- c
 	cl := exec.Command("clear")
 	cl.Stdout = os.Stdout
 	cl.Run()
 	for i:=len(bools)-1; i>=0; i--{
 		if (rw.bools[i]){
-			fmt.Println("1")
+			switch i{
+			case 3:
+				fmt.Println("   *   ")
+				break
+			case 2:
+				fmt.Println("  ***  ")
+				break
+			case 1:
+				fmt.Println(" ***** ")
+				break
+			case 0:
+				fmt.Println("*******")
+			}
 		} else {
-			fmt.Println(" ")
+			fmt.Println("")
 		}
 	}
-
+	fmt.Println("  |||  ")
 }
