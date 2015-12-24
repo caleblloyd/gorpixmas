@@ -25,6 +25,36 @@ func NewDelayWriter(writer io.Writer, delay int) *DelayWriter{
 	}
 }
 
+func (dw *DelayWriter) SetDelay(delay int) error {
+	dw.mutex.Lock()
+	defer dw.mutex.Unlock()
+	var err error
+	newBuf := make([]byte, delay)
+	if (delay < dw.delay  && dw.written > delay){
+		_, err = dw.flushBuffer(dw.written - delay)
+		upper := dw.readPos + delay
+		if (upper > dw.delay){
+			upper = dw.delay
+		}
+		copy(newBuf, dw.buffer[dw.readPos:upper])
+		lower := dw.readPos - upper + delay
+		if (lower > 0){
+			copy(newBuf, dw.buffer[:lower])
+		}
+		if (dw.writePos > dw.readPos){
+			dw.writePos = dw.writePos - dw.readPos
+		} else {
+			dw.writePos = dw.delay - dw.readPos + dw.writePos
+		}
+		dw.readPos = 0
+	} else {
+		copy(newBuf, dw.buffer[:])
+	}
+	dw.buffer = newBuf
+	dw.delay = delay
+	return err
+}
+
 func (dw *DelayWriter) Flush() (int, error) {
 	dw.mutex.Lock()
 	defer dw.mutex.Unlock()
@@ -80,6 +110,9 @@ func (dw *DelayWriter) writeBuffer(p []byte) (int, error) {
 func (dw *DelayWriter) Write(p []byte) (int, error) {
 	dw.mutex.Lock()
 	defer dw.mutex.Unlock()
+	if (dw.delay <= 0){
+		return dw.Writer.Write(p)
+	}
 	numBytes := len(p)
 	var n, nTotal, pStart int
 	var err error
