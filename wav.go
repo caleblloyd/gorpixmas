@@ -156,23 +156,42 @@ func (rw *RollingWindow) AddSamples(samples []float64){
 func (rw *RollingWindow) SetBoolsAndAddSamples(samples []float64) {
 	for i, v := range(samples){
 		avg := average(rw.bins[i])
-		if !rw.bools[i] && v >= avg*1.1{
+		if !rw.bools[i] && v > 1 && v >= avg*(1+threshold) {
 			rw.bools[i] = true
-		} else if rw.bools[i] && v <= avg*0.9 {
+		} else if rw.bools[i] && v <= avg*(1-threshold) {
 			rw.bools[i] = false
 		}
+		//if v >= avg*(1+onOffThreshold) {
+		//	if !rw.bools[i]{
+		//		rw.bools[i] = true
+		//	}
+		//} else if v <= avg*(1-onOffThreshold) {
+		//	if rw.bools[i]{
+		//		rw.bools[i] = false
+		//	}
+		//} else if v >= avg*(1+flipThreshold) || v <= avg*(1-flipThreshold) {
+		//	if rw.bools[i]{
+		//		rw.bools[i] = false
+		//	} else {
+		//		rw.bools[i] = false
+		//	}
+		//}
 	}
 	rw.AddSamples(samples)
 }
 
-func (rw *RollingWindow) RevPrint(){
+func (rw *RollingWindow) CopyBools() []bool {
 	bools := make([]bool, len(rw.bools))
 	copy(bools, rw.bools)
+	return bools
+}
+
+func RevPrint(bools []bool){
 	cl := exec.Command("clear")
 	cl.Stdout = os.Stdout
 	cl.Run()
 	for i:=len(bools)-1; i>=0; i--{
-		if (rw.bools[i]){
+		if (bools[i]){
 			switch i{
 			case 3:
 				fmt.Println("   *   ")

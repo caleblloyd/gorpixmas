@@ -9,7 +9,16 @@ import (
 	"os"
 	"github.com/mjibson/go-dsp/fft"
 	"github.com/mjibson/go-dsp/window"
+	"strings"
+	"github.com/mjibson/go-dsp/wav"
+	//"time"
+	"time"
 )
+
+const bins = 4
+const samplesPerSecond = 16
+const windowSize = 4
+const threshold = 0.2
 
 func main() {
 
@@ -25,10 +34,10 @@ func main() {
 	exitError := func (err error){
 		os.Stderr.WriteString(fmt.Sprintf("%q\n", err.Error()))
 		st.ExitCode = 1
-		st.Complete()
+		st.Exit()
 	}
 
-	var stdin *os.File
+	var stdin io.Reader
 	if flag.Arg(0) == "-"{
 		stdin = os.Stdin
 	} else {
@@ -36,59 +45,84 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		stdin = f
+		if (!strings.HasSuffix(strings.ToLower(flag.Arg(0)), ".wav")){
+			stdin, err = Convert(st, f)
+			if (err != nil) {
+				exitError(err)
+			}
+		} else {
+			stdin = f
+		}
 	}
 
 	pipeReader, pipeWriter := io.Pipe()
-	delayWriter := NewDelayWriter(pipeWriter, 0)
-	stdinReader := io.TeeReader(stdin, delayWriter)
-	bins := 4
+	//delayWriter := NewDelayWriter(pipeWriter, 0)
+	//stdinReader := io.TeeReader(stdin, delayWriter)
+	stdinReader := io.TeeReader(stdin, pipeWriter)
 	freqBin, err := NewFreqBin(bins)
-	samplesPerSecond := 12
-	windowSize := 6
+
 	if (err != nil){
 		exitError(err)
 	}
 
 	go func(){
-		wavReader, err := Convert(st, stdinReader)
+		wavReader, err := wav.New(pipeReader)
 		if (err != nil){
 			exitError(err)
 		}
-		samplesPerRead := int(wavReader.SampleRate)*int(wavReader.NumChannels)/samplesPerSecond
 		rw := NewRollingWindow(bins, windowSize)
-		delayWriter.SetDelay(int(wavReader.ByteRate)/samplesPerSecond)
+		samplesRemaining := wavReader.Samples
+		samplesPerRead := int(wavReader.SampleRate)*int(wavReader.NumChannels)/samplesPerSecond
+		durationTotal := time.Duration(0)
+		durationPerRead := time.Second / time.Duration(samplesPerSecond)
+		boolsCh := make(chan []bool, delay/durationPerRead + 2)
+		startTime := time.Now()
+		//delayWriter.SetDelay(int(wavReader.ByteRate)/samplesPerSecond)
 		for true {
-			data, err := wavReader.ReadFloats(samplesPerRead)
-			convert := make([]float64, len(data))
-			for i, v := range(data){
-				convert[i] = float64(v)
+			//fmt.Println(time.Now())
+			if (samplesRemaining > 0){
+				samplesToRead := samplesPerRead
+				if (samplesRemaining < samplesPerRead){
+					samplesToRead = samplesRemaining
+				}
+				samplesRemaining -= samplesToRead
+				data, err := wavReader.ReadFloats(samplesPerRead)
+				if (err != nil){
+					exitError(err)
+				}
+				convert := make([]float64, len(data))
+				for i, v := range(data){
+					convert[i] = float64(v)
+				}
+				window.Apply(convert, window.Bartlett)
+				fftOut := fft.FFTReal(convert)
+				var magTot float64;
+				mag := make([]float64, len(fftOut))
+				for i, v := range(fftOut){
+					mag[i] = cmplx.Abs(v)
+					magTot += mag[i]
+				}
+				freqSamples := freqBin.BinSamples(mag, int(wavReader.SampleRate))
+				rw.SetBoolsAndAddSamples(freqSamples)
+				boolsCh <- rw.CopyBools()
 			}
-			window.Apply(convert, window.Bartlett)
-			fftOut := fft.FFTReal(convert)
-			var magTot float64;
-			mag := make([]float64, len(fftOut))
-			for i, v := range(fftOut){
-				mag[i] = cmplx.Abs(v)
-				magTot += mag[i]
+			if (durationTotal >= delay){
+				if (len(boolsCh) == 0){
+					break
+				}
+				bools := <-boolsCh
+				RevPrint(bools)
 			}
-
-			freqSamples := freqBin.BinSamples(mag, int(wavReader.SampleRate))
-			rw.SetBoolsAndAddSamples(freqSamples)
-			rw.RevPrint()
-			if (err != nil){
-				exitError(err)
+			sleepFor := time.Since(startTime) - durationTotal - time.Millisecond
+			if sleepFor > time.Duration(0){
+				<- time.After(sleepFor)
 			}
-			if (data == nil){
-				fmt.Println("data nil")
-				break
-			}
+			durationTotal += durationPerRead
 		}
-		delayWriter.Flush()
 	}()
 
 	go func(){
-		err := PlayWav(st, pipeReader)
+		err := PlayWav(st, stdinReader)
 		if (err != nil){
 			exitError(err)
 		}
