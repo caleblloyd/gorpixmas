@@ -7,11 +7,9 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
-	"os"
-	"os/exec"
 )
 
-func PlayWav(st *svtracker.SvTracker, stdin io.Reader) error{
+func PlayWav(st *svtracker.SvTracker, stdin io.Reader) error {
 	st.Add()
 	defer st.Done()
 
@@ -21,7 +19,7 @@ func PlayWav(st *svtracker.SvTracker, stdin io.Reader) error{
 	stdoutPipe, _ := cmd.StdoutPipe()
 	cmd.Start()
 
-	var stdout, stderr []byte;
+	var stdout, stderr []byte
 
 	done := make(chan error, 1)
 	go func() {
@@ -32,8 +30,8 @@ func PlayWav(st *svtracker.SvTracker, stdin io.Reader) error{
 		done <- cmd.Wait()
 	}()
 
-	select{
-	case <- st.Term:
+	select {
+	case <-st.Term:
 		cmd.Process.Kill()
 	case err := <-done:
 		if err != nil {
@@ -48,35 +46,35 @@ type FreqBand struct {
 	Upper float64
 }
 
-func NewFreqBand(lower float64, upper float64) *FreqBand{
+func NewFreqBand(lower float64, upper float64) *FreqBand {
 	return &FreqBand{
 		Lower: lower,
 		Upper: upper,
 	}
 }
 
-type FreqBin struct{
+type FreqBin struct {
 	FreqBands []FreqBand
 }
 
-func NewFreqBin(numBins int) (*FreqBin, error){
-	if (numBins < 1){
+func NewFreqBin(numBins int) (*FreqBin, error) {
+	if numBins < 1 {
 		return nil, errors.New("Must have at least 1 frequency bin")
 	}
 	freqBands := make([]FreqBand, numBins)
-	if (numBins == 1){
+	if numBins == 1 {
 		freqBands[0] = *NewFreqBand(64, 16384)
 	} else {
 		// bass and percussion
 		freqBands[0] = *NewFreqBand(64, 512)
 		// voice and instruments
 		// logarithmically range from 512Hz (9^2) to 16 KHz (14^2)
-		incr := float64(5.0/numBins)
-		for i:=1; i<numBins; i++{
-			lower := float64(9.0 + incr * float64(i-1))
+		incr := 5.0 / float64(numBins)
+		for i := 1; i < numBins; i++ {
+			lower := 9.0 + float64(incr)*float64(i-1)
 			var upper float64
-			if (i == numBins - 1){
-				upper = 14
+			if i == numBins-1 {
+				upper = 14.0
 			} else {
 				upper = lower + incr
 			}
@@ -90,92 +88,72 @@ func NewFreqBin(numBins int) (*FreqBin, error){
 	}, nil
 }
 
-func (fb *FreqBin) BinSamples(samples []float64, samplingFreq int) []float64{
+func (fb *FreqBin) BinSamples(samples []float64, samplingFreq int) []float64 {
 	numSamples := len(samples)
 	bins := make([]float64, len(fb.FreqBands))
 	sampleI := 0
-	for i, v := range(fb.FreqBands){
+	for i, v := range fb.FreqBands {
 		for true {
 			sampleFreq := float64(sampleI) * (float64(samplingFreq) / float64(numSamples))
-			if (sampleFreq >= v.Upper){
-//				fmt.Print(v.Lower)
-//				fmt.Print(" - ")
-//				fmt.Print(v.Upper)
-//				fmt.Print(": ")
-//				fmt.Println(bins[i])
+			if sampleFreq >= v.Upper {
 				break
 			}
-			if (sampleFreq >= v.Lower){
+			if sampleFreq >= v.Lower {
 				bins[i] += samples[sampleI]
 			}
-			sampleI ++
+			sampleI++
 		}
 	}
 	return bins
 }
 
-func average(xs[]float64)float64 {
-	total:=0.0
-	for _,v:=range xs {
-		total +=v
+func average(xs []float64) float64 {
+	total := 0.0
+	for _, v := range xs {
+		total += v
 	}
-	return total/float64(len(xs))
+	return total / float64(len(xs))
 }
 
-type RollingWindow struct{
-	bins map[int][]float64
-	binSize int
-	bools []bool
+type RollingWindow struct {
+	bins       map[int][]float64
+	binSize    int
+	bools      []bool
 	windowSize int
-	windowPos int
+	windowPos  int
 }
 
-func NewRollingWindow(binSize int, windowSize int) *RollingWindow{
+func NewRollingWindow(binSize int, windowSize int) *RollingWindow {
 	bins := make(map[int][]float64, binSize)
-	for i:= 0; i<binSize; i++{
+	for i := 0; i < binSize; i++ {
 		bins[i] = make([]float64, windowSize)
 	}
 	return &RollingWindow{
-		bins: bins,
-		binSize: binSize,
-		bools: make([]bool, binSize),
+		bins:       bins,
+		binSize:    binSize,
+		bools:      make([]bool, binSize),
 		windowSize: windowSize,
 	}
 }
 
-func (rw *RollingWindow) AddSamples(samples []float64){
-	for i, v := range(samples){
+func (rw *RollingWindow) AddSamples(samples []float64) {
+	for i, v := range samples {
 		rw.bins[i][rw.windowPos] = v
 	}
-	rw.windowPos ++
-	if (rw.windowPos >= rw.windowSize){
+	rw.windowPos++
+	if rw.windowPos >= rw.windowSize {
 		rw.windowPos = 0
 	}
 }
 
 func (rw *RollingWindow) SetBoolsAndAddSamples(samples []float64) {
-	for i, v := range(samples){
+	for i, v := range samples {
 		avg := average(rw.bins[i])
 		if !rw.bools[i] && v > 1 && v >= avg*(1+threshold) {
 			rw.bools[i] = true
 		} else if rw.bools[i] && v <= avg*(1-threshold) {
 			rw.bools[i] = false
 		}
-		//if v >= avg*(1+onOffThreshold) {
-		//	if !rw.bools[i]{
-		//		rw.bools[i] = true
-		//	}
-		//} else if v <= avg*(1-onOffThreshold) {
-		//	if rw.bools[i]{
-		//		rw.bools[i] = false
-		//	}
-		//} else if v >= avg*(1+flipThreshold) || v <= avg*(1-flipThreshold) {
-		//	if rw.bools[i]{
-		//		rw.bools[i] = false
-		//	} else {
-		//		rw.bools[i] = false
-		//	}
-		//}
 	}
 	rw.AddSamples(samples)
 }
@@ -184,30 +162,4 @@ func (rw *RollingWindow) CopyBools() []bool {
 	bools := make([]bool, len(rw.bools))
 	copy(bools, rw.bools)
 	return bools
-}
-
-func RevPrint(bools []bool){
-	cl := exec.Command("clear")
-	cl.Stdout = os.Stdout
-	cl.Run()
-	for i:=len(bools)-1; i>=0; i--{
-		if (bools[i]){
-			switch i{
-			case 3:
-				fmt.Println("   *   ")
-				break
-			case 2:
-				fmt.Println("  ***  ")
-				break
-			case 1:
-				fmt.Println(" ***** ")
-				break
-			case 0:
-				fmt.Println("*******")
-			}
-		} else {
-			fmt.Println("")
-		}
-	}
-	fmt.Println("  |||  ")
 }

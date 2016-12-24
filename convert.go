@@ -4,12 +4,12 @@ import (
 	"errors"
 	"github.com/caleblloyd/svtracker"
 	"io"
-	"os/exec"
 	"log"
+	"os/exec"
 	"time"
 )
 
-func Convert(st *svtracker.SvTracker, notWav io.Reader) (io.Reader,  error) {
+func Convert(st *svtracker.SvTracker, notWav io.Reader) (io.Reader, error) {
 	cmd := exec.Command("which", "ffmpeg")
 	cmd.Start()
 
@@ -34,7 +34,7 @@ func Convert(st *svtracker.SvTracker, notWav io.Reader) (io.Reader,  error) {
 	cmd = exec.Command("ffmpeg", "-i", "pipe:0", "-f", "wav", "-")
 	cmd.Stdin = notWav
 	wavOut, err := cmd.StdoutPipe()
-	if (err != nil) {
+	if err != nil {
 		return nil, err
 	}
 	cmd.Start()
@@ -45,10 +45,10 @@ func Convert(st *svtracker.SvTracker, notWav io.Reader) (io.Reader,  error) {
 		if err != nil || cmd.ProcessState.Success() {
 			return nil, errors.New("FFMPEG was unable to convert file to WAV")
 		}
-	case <- time.After(time.Second):
+	case <-time.After(time.Second):
 		break
 	}
-	go func(){
+	go func() {
 		select {
 		case <-st.Term:
 			cmd.Process.Kill()

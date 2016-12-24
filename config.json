@@ -1,0 +1,10 @@
+{
+  "delayMs": 800,
+  "output": "console",
+  "gpios": [
+    17,
+    18,
+    27,
+    22
+  ]
+}
